@@ -247,6 +247,7 @@ MaskFeaturePointSelectionFilter<
 
   // number of points to select
   SizeValueType pointsLeft = floor( 0.5 + pointMap.size() * m_SelectFraction );
+std::cout << "Selecting " << pointsLeft << " out of " << pointMap.size() << " points" << std::endl;
 
   // pick points with highest variance first
   for ( typename MultiMapType::reverse_iterator rit = pointMap.rbegin(); rit != pointMap.rend(); ++rit )
