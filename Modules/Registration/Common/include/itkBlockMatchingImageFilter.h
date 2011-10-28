@@ -194,7 +194,7 @@ public:
   /** Start multithreader here since MeshToMesh filter does not provide multithreaded support */
   void GenerateData();
 
-  void ThreadedGenerateData( ThreadIdType threadId ) throw ( ExceptionObject );
+  void ThreadedGenerateData( ThreadIdType threadId );
 
 protected:
   BlockMatchingImageFilter();

@@ -15,6 +15,7 @@
  *  limitations under the License.
  *
  *=========================================================================*/
+// itkBlockMatchingImageFilterTest2 tp1_brain_regularized.nii.gz tp2_brain_regularized.nii.gz tp1_brain_mask_regularized.nii.gz displ.txt
 
 #include <ctime>
 #include <iostream>
@@ -30,17 +31,25 @@
 #include "itkMaskFeaturePointSelectionFilter.h"
 #include "itkBlockMatchingImageFilter.h"
 
+#include "preselected_points.h"
 
-int itkBlockMatchingImageFilterTest( int argc, char * argv[] )
+#include <iostream>
+#include <fstream>
+
+
+int itkBlockMatchingImageFilterTest2( int argc, char * argv[] )
 {
-  if( argc < 2 )
+itk::MultiThreader::SetGlobalMaximumNumberOfThreads( 1 );
+
+  std::cerr << "This is Test2 " << std::endl;
+  if( argc < 5 )
     {
     std::cerr << "Usage: " << std::endl;
-    std::cerr << " itkBlockMatchingImageFilterTest inputImageFile outputImageFile [Mask File] ";
+    std::cerr << " itkitkBlockMatchingImageFilterTest2 fixedImageFile[1] movingImageFile[2] maskImageFile[3] displacementsOutput[4]";
     return EXIT_FAILURE;
     }
 
-  typedef unsigned char                  InputPixelType;
+  typedef unsigned short                  InputPixelType;
   typedef itk::RGBPixel<InputPixelType>  OutputPixelType;
 
   typedef itk::Image< InputPixelType,  3 >       InputImageType;
@@ -54,35 +63,60 @@ int itkBlockMatchingImageFilterTest( int argc, char * argv[] )
   typedef FilterType::PointType       PointType;
   typedef FilterType::InputImageType  ImageType;
 
-  //Set up the reader
-  ReaderType::Pointer reader = ReaderType::New();
-  reader->SetFileName( argv[1] );
+  // parameters
+  FilterType::SizeType blockRadius = { 3, 3, 3 }; // 7x7x7
+  FilterType::SizeType searchRadius = { 10, 10, 10 }; // 21x21x21
+  FilterType::SizeType blockStep = { 1, 1, 1 };
+
+  //Set up the readers
+  ReaderType::Pointer readerFixed = ReaderType::New();
+  readerFixed->SetFileName( argv[1] );
+  readerFixed->Update();
+  InputImageType::Pointer fixedImage = readerFixed->GetOutput();
+
+  ReaderType::Pointer readerMoving = ReaderType::New();
+  readerMoving->SetFileName( argv[2] );
+  readerMoving->Update();
+  InputImageType::Pointer movingImage = readerMoving->GetOutput();
+
+  ReaderType::Pointer readerMask = ReaderType::New();
+  readerMask->SetFileName( argv[3] );
+  readerMask->Update();
+  InputImageType::Pointer maskImage = readerMask->GetOutput();
+
+  //// set origin to 0s
+  //const float origin[3] = { 0.0, 0.0, 0.0 };
+  //fixedImage->SetOrigin( origin );
+  //movingImage->SetOrigin( origin );
+  //maskImage->SetOrigin( origin );
+
+
 
   // Set up filter
   FilterType::Pointer filter = FilterType::New();
+  filter->SetInput( fixedImage );
+  filter->SetMaskImage( maskImage );
 
-  //
-  filter->SetInput( reader->GetOutput() );
+  // Set parameters
+  filter->SetNonConnectivity( FilterType::VERTEX_CONNECTIVITY ); //26
+  filter->SetBlockRadius( blockRadius );
+  filter->SetSelectFraction( 0.05 ); // reject 95%
+  filter->ComputeStructureTensorsOff(); // no tensors
 
-  filter->SetSelectFraction( 0.0001 );
-
-  // setting the same (as for BM) parameters ensures selection of feature points safe distance from image boundaries
-  FilterType::SizeType s;
-  s.Fill( 2 );
-  filter->SetBlockRadius( s );
   //s.Fill( 7 );
   //filter->SetBlockHalfWindow( s );
 
   std::cout << "Feature selection: " << filter << std::endl;
+
   try
     {
       const clock_t begin = std::clock();
 
-      filter->Update();
+//      filter->Update();
 
       const clock_t end = std::clock();
 
-      std::cout << "Execution time: "<< ( end - begin ) /  CLOCKS_PER_SEC << "sec" << std::endl << std::endl;
+      std::cout << "FS execution time: "<< ( end - begin ) /  CLOCKS_PER_SEC << "sec" << std::endl << std::endl;
     }
   catch ( itk::ExceptionObject &err )
     {
@@ -90,33 +124,21 @@ int itkBlockMatchingImageFilterTest( int argc, char * argv[] )
       return EXIT_FAILURE;
     }
 
-  //PointSetType::PointDataContainerIterator itPointData =
-  //        filter->GetOutput()->GetPointData()->Begin();
-  //PointSetType::PointDataContainerIterator end =
-  //        filter->GetOutput()->GetPointData()->End();
+  // create PointSet from preselected feature points array
+  PointSetType::Pointer preSelectedPointSet = PointSetType::New();
+  PointSetType::PointsContainer::Pointer points = PointSetType::PointsContainer::New();
 
-  // duplicate input image (not really necessary but simpler)
-  typedef itk::ImageDuplicator< InputImageType > DuplicatorType;
-  DuplicatorType::Pointer duplicator = DuplicatorType::New();
-  duplicator->SetInputImage( reader->GetOutput() );
-  duplicator->Update();
-//  InputImageType::Pointer dupImage = duplicator->GetOutput();
-
-  // transform the dup image
-  typedef itk::ImageRegionIteratorWithIndex< InputImageType >  DuplicateIteratorType;
-  DuplicateIteratorType dupIterator( reader->GetOutput(), reader->GetOutput()->GetBufferedRegion() );
-
-  duplicator->GetOutput()->FillBuffer( 0 );
-  for ( dupIterator.GoToBegin(); !dupIterator.IsAtEnd(); ++dupIterator )
+  for ( unsigned i = 0; i < preselected_points_count; i++ )
     {
-      // move each pixel in input image 5 pixels along first(0) dimension
-      InputImageType::IndexType idx = dupIterator.GetIndex();
-      idx[0] += 5;
-      if ( duplicator->GetOutput()->GetBufferedRegion().IsInside( idx ) )
-        {
-          duplicator->GetOutput()->SetPixel( idx, dupIterator.Value() );
-        }
+      PointSetType::PointType point;
+      // -0.5 to convert from clatz's mapping
+      point[0] = preselected_points[i * 3] - 0.5;
+      point[1] = preselected_points[i * 3 + 1] - 0.5;
+      point[2] = preselected_points[i * 3 + 2] - 0.5;
+
+      points->InsertElement( i, point );
     }
+  preSelectedPointSet->SetPoints(points);
 
   // at this time we have feature points
   typedef itk::BlockMatchingImageFilter< InputImageType >  BMFilterType;
@@ -124,17 +146,14 @@ int itkBlockMatchingImageFilterTest( int argc, char * argv[] )
   BMFilterType::Pointer BMFilter = BMFilterType::New();
 
   // inputs (all required)
-  BMFilter->SetFixedImage( duplicator->GetOutput() );
-  BMFilter->SetMovingImage( reader->GetOutput() );
-  BMFilter->SetFeaturePoints( filter->GetOutput() );
+  BMFilter->SetFixedImage( fixedImage );
+  BMFilter->SetMovingImage( movingImage );
+  BMFilter->SetFeaturePoints( preSelectedPointSet ); //  BMFilter->SetFeaturePoints( filter->GetOutput() );
 
-  // parameters (all optional)
-  s.Fill( 2 );
-  BMFilter->SetBlockRadius( s );
-  s.Fill( 7 );
-  BMFilter->SetSearchRadius( s );
-  s.Fill( 1 );
-  BMFilter->SetBlockStep( s );
+  // BM parameters
+  BMFilter->SetBlockRadius( blockRadius );
+  BMFilter->SetSearchRadius( searchRadius );
+  BMFilter->SetBlockStep( blockStep );
 
   std::cout << "Block matching: " << BMFilter << std::endl;
   try
@@ -145,7 +164,7 @@ int itkBlockMatchingImageFilterTest( int argc, char * argv[] )
 
       const clock_t end = std::clock();
 
-      std::cout << "Execution time: "<< ( end - begin ) /  CLOCKS_PER_SEC << "sec" << std::endl << std::endl;
+      std::cout << "BM execution time: "<< ( end - begin ) /  CLOCKS_PER_SEC << "sec" << std::endl << std::endl;
     }
   catch ( itk::ExceptionObject &err )
     {
@@ -153,18 +172,43 @@ int itkBlockMatchingImageFilterTest( int argc, char * argv[] )
       return EXIT_FAILURE;
     }
 
+// __DEBUG ONLY__ < < <
+  // write displacements to file argv[4]
+  std::cout << "BM done, wrtiting displacements to file <" << argv[4] << ">" << std::endl;
+  std::ofstream fdisp(argv[4]);
+  fdisp << "" << std::endl;
+
+  unsigned pcount = BMFilter->GetOutput()->GetPoints()->size();
+  std::cout << pcount << " points will be written to file" << std::endl;
+
+  fdisp << pcount << std::endl;
+  for ( unsigned i = 0; i < pcount; i++ )
+    {
+      BMFilterType::FeaturePointsPhysicalCoordinates coor = BMFilter->GetOutput()->GetPoints()->ElementAt(i);
+      BMFilterType::DisplacementsVector              disp = BMFilter->GetOutput()->GetPointData()->ElementAt(i);
+      fdisp << coor[0] << " " << coor[1] << " " << coor[2] << "\t"
+            << disp[0] << " " << disp[1] << " " << disp[2] << std::endl;
+    }
+
+  fdisp <<  std::endl;
+  fdisp.close();
+// __DEBUG ONLY__ > > >
+
+
+abort();
+
   //Set up the writer
   typedef itk::ImageFileWriter< OutputImageType >  WriterType;
   WriterType::Pointer writer = WriterType::New();
 
   typedef itk::ImageRegionConstIterator< InputImageType >         InputIteratorType;
-  InputIteratorType inputIterator( reader->GetOutput(), reader->GetOutput()->GetBufferedRegion() );
+  InputIteratorType inputIterator( fixedImage, fixedImage->GetBufferedRegion() );
   typedef itk::ImageRegionIterator< OutputImageType > OutputIteratorType;
 
   OutputImageType::Pointer outputImage = OutputImageType::New();
-  outputImage->CopyInformation( reader->GetOutput() );
-  outputImage->SetBufferedRegion( reader->GetOutput()->GetBufferedRegion() );
-  outputImage->SetRequestedRegion( reader->GetOutput()->GetRequestedRegion() );
+  outputImage->CopyInformation( fixedImage );
+  outputImage->SetBufferedRegion( fixedImage->GetBufferedRegion() );
+  outputImage->SetRequestedRegion( fixedImage->GetRequestedRegion() );
   outputImage->Allocate();
 
   OutputIteratorType outputIterator( outputImage, outputImage->GetBufferedRegion() );

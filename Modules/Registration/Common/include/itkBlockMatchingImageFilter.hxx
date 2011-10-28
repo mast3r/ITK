@@ -50,7 +50,10 @@ BlockMatchingImageFilter<
   m_BlockStep.Fill( 1 );
 
   // all inputs are required
-  this->SetNumberOfRequiredInputs( 3 );
+  this->RemoveRequiredInputName("Primary");
+  this->AddRequiredInputName("FixedImage");
+  this->AddRequiredInputName("MovingImage");
+  this->AddRequiredInputName("FeaturePoints");
 }
 
 template<
@@ -368,14 +371,14 @@ BlockMatchingImageFilter<
 ::ThreadedGenerateData( ThreadIdType threadId ) throw ( ExceptionObject )
 {
   FixedImageConstPointer fixedImage = this->GetFixedImage();
-  MovingImageConstPointer floatingImage = this->GetMovingImage();
+  MovingImageConstPointer movingImage = this->GetMovingImage();
   FeaturePointsConstPointer featurePoints = this->GetFeaturePoints();
 
-  unsigned threadCount = this->GetNumberOfThreads();
+  int threadCount = this->GetNumberOfThreads();
 
   // compute first point and number of points (count) for this thread
-  unsigned count = m_PointsCount / threadCount;
-  unsigned first = threadId * count;
+  int count = m_PointsCount / threadCount;
+  int first = threadId * count;
   if ( threadId + 1 == threadCount ) // last thread
     {
       count += m_PointsCount % threadCount;
@@ -388,7 +391,7 @@ BlockMatchingImageFilter<
   windowSize.Fill( 1 );
   center.SetSize( windowSize ); // size of center region is 1
   windowSize += m_SearchRadius + m_SearchRadius;
-  window.SetSize( windowSize ); // size of window region is 1+2*m_BlockHalfWindow
+  window.SetSize( windowSize ); // size of window region is 1+2*windowSize
 
   // start constructing block iterator
   SizeValueType numberOfVoxelInBlock = 1;
@@ -402,7 +405,7 @@ BlockMatchingImageFilter<
     {
       FeaturePointsPhysicalCoordinates originalLocation = featurePoints->GetPoint( id );
       ImageIndexType index;
-      fixedImage->TransformPhysicalPointToIndex( originalLocation, index );
+      movingImage->TransformPhysicalPointToIndex( originalLocation, index );
 
       // the block is selected for a minimum similarity metric
       SimilaritiesValue  similarity = std::numeric_limits< TSimilarity >::max();
@@ -437,20 +440,24 @@ BlockMatchingImageFilter<
           // iterate over voxels in blockRadius
           for ( unsigned i = 0; i < numberOfVoxelInBlock; i++ ) // windowIterator.Size() == numberOfVoxelInBlock
             {
-              valRef = windowIterator.GetPixel( i );
-              valFlo = centerIterator.GetPixel( i );
-              floMean += valFlo;
+              valRef = windowIterator.GetPixel(i);
               refMean += valRef;
-              floVariance += valFlo * valFlo;
               refVariance += valRef * valRef;
+
+              valFlo = centerIterator.GetPixel(i);
+              floMean += valFlo;
+              floVariance += valFlo * valFlo;
+
               cov += valRef * valFlo;
             }
           refMean /= numberOfVoxelInBlock;
-          floMean /= numberOfVoxelInBlock;
           refVariance -= numberOfVoxelInBlock * refMean * refMean;
+
+          floMean /= numberOfVoxelInBlock;
           floVariance -= numberOfVoxelInBlock * floMean * floMean;
+
           cov -= numberOfVoxelInBlock *  refMean * floMean;
-          crit = 1.0 - ( cov*cov / ( refVariance *floVariance ) );
+          crit = 1.0 - ( cov * cov / ( refVariance * floVariance ) );
 
           if ( crit < similarity )
           {
