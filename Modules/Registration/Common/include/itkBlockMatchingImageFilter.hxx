@@ -423,7 +423,7 @@ BlockMatchingImageFilter<
       ConstNeighborhoodIterator< FixedImageType > windowIterator( m_BlockRadius, fixedImage, window );
 
       // iterate over voxels in neighbourhood of current feature point
-      ConstNeighborhoodIterator< MovingImageType > centerIterator( m_BlockRadius, floatingImage, center );
+      ConstNeighborhoodIterator< MovingImageType > centerIterator( m_BlockRadius, movingImage, center );
       centerIterator.GoToBegin();
 
       // iterate over neighbourhoods in region window
